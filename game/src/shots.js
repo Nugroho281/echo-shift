@@ -76,14 +76,15 @@ export function stageShot(name, world, random) {
       screen: SCREEN_RESULTS,
       mode: 'story',
       results: {
-        medal: 'Gold', time: 14.2, resets: 0, alarms: 0, score: 1280,
+        medal: 'Gold', time: 14.2, resets: 0, alarms: 0, score: 1458,
+        breakdown: { base: 1000, timeBonus: 158, medalBonus: 300, resetPenalty: 0, alarmPenalty: 0, total: 1458 },
         levelName: 'First Steps', par: 15, artifactsGot: 1, artifactsTotal: 1,
         isNewBest: true, bestLine: '★ NEW BEST ★', nextAction: null, nextLabel: '',
       },
       buttons: [],
     };
   }
-  // start (and anything else): the title screen — all five buttons, same
+  // start (and anything else): the title screen — all six buttons, same
   // positions as the real title screen, so the cover shot is faithful.
   world.loadLevel(LEVELS[3], 'story');
   return {
@@ -95,6 +96,7 @@ export function stageShot(name, world, random) {
       { x: 490, y: 552, w: 300, h: 54, label: 'TIME TRIAL', sub: 'Race your best times', action: () => {}, disabled: false, hot: false },
       { x: 490, y: 618, w: 145, h: 40, label: 'Settings', sub: '', action: () => {}, disabled: false, hot: false },
       { x: 650, y: 618, w: 145, h: 40, label: 'How to play', sub: '', action: () => {}, disabled: false, hot: false },
+      { x: 810, y: 618, w: 145, h: 40, label: '🏛 Gallery', sub: '', action: () => {}, disabled: false, hot: false },
     ],
   };
 }

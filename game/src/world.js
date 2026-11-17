@@ -14,6 +14,7 @@ export const EVENT_DOOR = 16;
 export const EVENT_TIMEOUT = 32;
 export const EVENT_RESET = 64;
 export const EVENT_LASER_OFF = 128;
+export const EVENT_PLATE = 256; // a pressure plate just became pressed (brief C juice)
 
 const DOOR_CHARS = new Set(['G', 'H', 'J', 'K', 'D']);
 const PLATE_CHARS = new Set(['1', '2', '3', 'W']);
@@ -26,8 +27,16 @@ function tileAt(grid, c, r) {
 
 function isSolidTile(ch, doorsOpen) {
   if (ch === '#') return true;
+  if (ch === 'v') return true; // a glass display case is solid decor
   if (DOOR_CHARS.has(ch)) return !doorsOpen;
   return false;
+}
+
+/** Move `v` toward `target` by at most `maxDelta` (accel / friction helper). */
+function approach(v, target, maxDelta) {
+  if (v < target) return Math.min(target, v + maxDelta);
+  if (v > target) return Math.max(target, v - maxDelta);
+  return v;
 }
 
 /** Parse a level definition into the live entities the simulation works with. */
@@ -53,16 +62,22 @@ export function parseLevel(def) {
         const vertical = ch === 'O';
         let min = vertical ? r : c;
         let max = min;
+        // Patrol range stops at walls AND display cases ('v' is solid decor).
+        const blocksPatrol = (cc, rr) => {
+          const t = tileAt(grid, cc, rr);
+          return t === '#' || t === 'v';
+        };
         if (vertical) {
-          while (tileAt(grid, c, max + 1) !== '#') max += 1;
-          while (tileAt(grid, c, min - 1) !== '#') min -= 1;
+          while (!blocksPatrol(c, max + 1)) max += 1;
+          while (!blocksPatrol(c, min - 1)) min -= 1;
         } else {
-          while (tileAt(grid, max + 1, r) !== '#') max += 1;
-          while (tileAt(grid, min - 1, r) !== '#') min -= 1;
+          while (!blocksPatrol(max + 1, r)) max += 1;
+          while (!blocksPatrol(min - 1, r)) min -= 1;
         }
         data.drones.push({
           x: c + 0.5, y: r + 0.5, vertical, min: min + 0.5, max: max + 0.5,
-          dir: 1, speed: DRONE.speed, distracted: 0, targetX: c + 0.5, targetY: r + 0.5,
+          dir: 1, speed: def.droneSpeed || DRONE.speed, alert: 0,
+          distracted: 0, targetX: c + 0.5, targetY: r + 0.5,
           homeX: c + 0.5, homeY: r + 0.5,
         });
       } else if (ch === 'C') data.crates.push({ x: c + 0.5, y: r + 0.5 });
@@ -74,9 +89,9 @@ export function parseLevel(def) {
 export function createWorld(random) {
   const state = {
     level: null, parsed: null, mode: 'story', room: 1,
-    player: { x: 1.5, y: 1.5, faceX: 1, faceY: 0 },
+    player: { x: 1.5, y: 1.5, vx: 0, vy: 0, faceX: 1, faceY: 0 },
     crates: [], drones: [], echoes: [], recording: [],
-    time: 0, loopTime: 0, tick: 0,
+    time: 0, loopTime: 0, tick: 0, laserPeriod: 4, lastAlarmCause: '', lastPlate: null,
     artifactsGot: 0, artifactsTotal: 0,
     alarms: 0, resets: 0, alarmCooldown: 0, alarmFlash: 0,
     complete: false, failed: false, failReason: '',
@@ -91,8 +106,13 @@ export function createWorld(random) {
     state.room = room;
     state.player.x = parsed.start.x;
     state.player.y = parsed.start.y;
+    state.player.vx = 0;
+    state.player.vy = 0;
     state.player.faceX = 1;
     state.player.faceY = 0;
+    state.laserPeriod = def.laserPeriod || 4;
+    state.lastAlarmCause = '';
+    state.lastPlate = null;
     state.crates = parsed.crates.map((c) => ({ x: c.x, y: c.y }));
     state.drones = parsed.drones.map((d) => ({ ...d }));
     state.echoes = [];
@@ -123,6 +143,7 @@ export function createWorld(random) {
 
   function solidAt(c, r) {
     const ch = tileAt(state.parsed.grid, c, r);
+    if (ch === 'v') return true; // display cases are solid
     if (DOOR_CHARS.has(ch)) return !doorOpenAt(c, r);
     return ch === '#';
   }
@@ -218,11 +239,13 @@ export function createWorld(random) {
     return false;
   }
 
-  /** Is the timed laser at this tile lit right now? `t` and `T` blink in opposite phases. */
+  /** Is the timed laser at this tile lit right now? `t` and `T` blink in opposite
+   *  phases of the level's laser period (4 s in story, faster in deep Endless rooms). */
   function timedLaserOn(laser) {
-    const phase = state.loopTime % 4;
-    if (laser.kind === 't') return phase < 2;
-    return phase >= 2;
+    const period = state.laserPeriod || 4;
+    const phase = state.loopTime % period;
+    if (laser.kind === 't') return phase < period / 2;
+    return phase >= period / 2;
   }
 
   function laserActive(laser) {
@@ -253,13 +276,17 @@ export function createWorld(random) {
     return hasLineOfSight(drone.x, drone.y, actor.x, actor.y);
   }
 
-  function triggerAlarm(events) {
+  function triggerAlarm(events, cause) {
     if (state.alarmCooldown > 0) return events;
     state.alarms += 1;
     state.alarmCooldown = DRONE.alarmCooldown;
     state.alarmFlash = 0.6;
+    state.lastAlarmCause = cause || 'drone';
+    for (const d of state.drones) d.alert = 0;
     state.player.x = state.parsed.start.x;
     state.player.y = state.parsed.start.y;
+    state.player.vx = 0;
+    state.player.vy = 0;
     return events | EVENT_ALARM;
   }
 
@@ -284,11 +311,14 @@ export function createWorld(random) {
     state.resets += 1;
     state.player.x = state.parsed.start.x;
     state.player.y = state.parsed.start.y;
+    state.player.vx = 0;
+    state.player.vy = 0;
     for (const d of state.drones) {
       d.x = d.homeX;
       d.y = d.homeY;
       d.dir = 1;
       d.distracted = 0;
+      d.alert = 0;
     }
     return events;
   }
@@ -318,17 +348,22 @@ export function createWorld(random) {
       }
     }
 
-    // --- player movement ---
+    // --- player movement: smooth acceleration toward the steering direction,
+    // friction coasts the thief to a stop (brief C game feel) ---
     const mx = input.mx || 0;
     const my = input.my || 0;
+    const p = state.player;
     if (mx !== 0 || my !== 0) {
       const len = Math.hypot(mx, my);
-      const nx = (mx / len) * PLAYER.speed * dt;
-      const ny = (my / len) * PLAYER.speed * dt;
-      moveActor(state.player, nx, ny, true);
-      state.player.faceX = mx / len;
-      state.player.faceY = my / len;
+      p.vx = approach(p.vx, (mx / len) * PLAYER.speed, PLAYER.accel * dt);
+      p.vy = approach(p.vy, (my / len) * PLAYER.speed, PLAYER.accel * dt);
+      p.faceX = mx / len;
+      p.faceY = my / len;
+    } else {
+      p.vx = approach(p.vx, 0, PLAYER.friction * dt);
+      p.vy = approach(p.vy, 0, PLAYER.friction * dt);
     }
+    moveActor(p, p.vx * dt, p.vy * dt, true);
 
     // --- echoes replay their recordings, then freeze at their final spot ---
     for (const echo of state.echoes) {
@@ -346,7 +381,14 @@ export function createWorld(random) {
     }
 
     // --- plates, switches, latching doors ---
-    for (const plate of state.parsed.plates) plate.pressed = platePressed(plate);
+    for (const plate of state.parsed.plates) {
+      const was = plate.pressed;
+      plate.pressed = platePressed(plate);
+      if (plate.pressed && !was) {
+        events |= EVENT_PLATE;
+        state.lastPlate = { x: plate.x, y: plate.y };
+      }
+    }
     let anySwitch = false;
     for (const sw of state.parsed.switches) {
       sw.pressed = switchPressed(sw);
@@ -369,14 +411,18 @@ export function createWorld(random) {
     }
 
     // --- drones: patrol, spot the player, get distracted by echoes ---
+    // Detection is GRADUAL (brief C): a drone's alert meter fills while the
+    // player stays in its cone and drains when they slip out. Only a full
+    // meter (100%) raises the alarm — a quick dash through a cone is safe.
     for (const drone of state.drones) {
       if (drone.distracted > 0) {
         drone.distracted -= dt;
+        drone.alert = Math.max(0, drone.alert - dt / DRONE.alertDecay);
         const dx = drone.targetX - drone.x;
         const dy = drone.targetY - drone.y;
         const dist = Math.hypot(dx, dy);
         if (dist > 0.05) {
-          const sp = DRONE.speed * 1.4 * dt;
+          const sp = drone.speed * 1.4 * dt;
           drone.x += (dx / dist) * Math.min(sp, dist);
           drone.y += (dy / dist) * Math.min(sp, dist);
         }
@@ -402,17 +448,22 @@ export function createWorld(random) {
         if (drone.x >= drone.max) { drone.x = drone.max; drone.dir = -1; }
         else if (drone.x <= drone.min) { drone.x = drone.min; drone.dir = 1; }
       }
-      if (sees(drone, state.player)) events = triggerAlarm(events);
+      if (sees(drone, state.player)) {
+        drone.alert = Math.min(1, drone.alert + dt / DRONE.alertFill);
+        if (drone.alert >= 1) events = triggerAlarm(events, 'drone');
+      } else {
+        drone.alert = Math.max(0, drone.alert - dt / DRONE.alertDecay);
+      }
       const ddx = state.player.x - drone.x;
       const ddy = state.player.y - drone.y;
-      if (Math.hypot(ddx, ddy) < 0.5) events = triggerAlarm(events);
+      if (Math.hypot(ddx, ddy) < 0.5) events = triggerAlarm(events, 'touch');
     }
 
     // --- lasers burn the player (echoes are ghosts and pass through) ---
     const pt = actorTile(state.player);
     for (const laser of state.parsed.lasers) {
       if (laser.x === pt.c && laser.y === pt.r && laserActive(laser)) {
-        events = triggerAlarm(events);
+        events = triggerAlarm(events, 'laser');
         break;
       }
     }
@@ -449,14 +500,20 @@ export function createWorld(random) {
     return 'Bronze';
   }
 
-  function scoreFor(level, time, resets, alarms, medal) {
+  /** Score breakdown for a finished level (brief E: shown row by row). */
+  function scoreBreakdown(level, time, resets, alarms, medal) {
     const base = 1000;
     const timeBonus = Math.max(0, Math.round((level.par * 2 - time) * 10));
     const resetPenalty = resets * 50;
     const alarmPenalty = alarms * 100;
     const medalBonus = medal === 'Perfect Echo' ? 500 : medal === 'Gold' ? 300 : medal === 'Silver' ? 150 : 0;
-    return Math.max(100, base + timeBonus + medalBonus - resetPenalty - alarmPenalty);
+    const total = Math.max(100, base + timeBonus + medalBonus - resetPenalty - alarmPenalty);
+    return { base, timeBonus, resetPenalty, alarmPenalty, medalBonus, total };
   }
 
-  return { state, loadLevel, step, resetTimeline, medalFor, scoreFor, timedLaserOn };
+  function scoreFor(level, time, resets, alarms, medal) {
+    return scoreBreakdown(level, time, resets, alarms, medal).total;
+  }
+
+  return { state, loadLevel, step, resetTimeline, medalFor, scoreFor, scoreBreakdown, timedLaserOn };
 }

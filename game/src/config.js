@@ -13,6 +13,8 @@ export const STEP = 1 / 60;
 export const PLAYER = {
   speed: 5.2, // tiles per second
   radius: 0.28, // tiles, half-size of the collision box
+  accel: 50, // tiles/s^2 while steering (smooth start, brief C)
+  friction: 45, // tiles/s^2 while coasting to a stop
 };
 
 export const DRONE = {
@@ -21,6 +23,8 @@ export const DRONE = {
   halfAngle: 0.96, // radians (~55 degrees) either side of the facing direction
   distractSeconds: 3, // how long a seen echo holds a drone's attention
   alarmCooldown: 1.5, // seconds after an alarm before another can fire
+  alertFill: 1.2, // seconds of continuous exposure to fill the alert meter (brief C)
+  alertDecay: 0.8, // seconds out of the cone to drain a full meter
 };
 
 /** One recording holds at most this many ticks (60 s); a longer loop auto-resets. */

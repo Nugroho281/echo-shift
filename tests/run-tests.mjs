@@ -5,8 +5,9 @@
 import { createRandom } from '../game/src/random.js';
 import { LEVELS, generateEndlessRoom } from '../game/src/levels.js';
 import {
-  EVENT_ALARM, EVENT_COMPLETE, createWorld,
+  EVENT_ALARM, EVENT_COMPLETE, EVENT_PLATE, createWorld,
 } from '../game/src/world.js';
+import { ARTIFACT_KINDS } from '../game/src/render.js';
 import { STEP } from '../game/src/config.js';
 
 let passed = 0;
@@ -84,12 +85,14 @@ class Bot {
       if (c < 0 || c >= 20 || r < 0 || r >= 11) return false;
       const ch = grid[r][c];
       if (ch === '#') return false;
+      if (ch === 'v') return false; // a display case is solid decor
       if ('GHJKD'.includes(ch)) return doorOpen(c, r);
       if (crateTiles.has(`${c},${r}`)) return false;
       // A lit laser is a wall to the bot; a dark one (switch held, or timed off) is floor.
+      const period = st.laserPeriod || 4;
       if (ch === '-' || ch === '|') return st.lasersOff;
-      if (ch === 't') return st.loopTime % 4 >= 2;
-      if (ch === 'T') return st.loopTime % 4 < 2;
+      if (ch === 't') return st.loopTime % period >= period / 2;
+      if (ch === 'T') return st.loopTime % period < period / 2;
       return true;
     };
     if (!passable(tx, ty)) return null;
@@ -208,7 +211,7 @@ class Bot {
 const SOLUTIONS = {
   1: [['goto', 8, 1], ['goto', 10, 9]],
   2: [['goto', 7, 1], ['push', 0, 7, 3], ['goto', 5, 3], ['goto', 5, 7], ['goto', 10, 9], ['goto', 15, 9]],
-  3: [['goto', 3, 2], ['wait', 30], ['reset'], ['latch', 16, 2], ['goto', 5, 4], ['goto', 5, 7], ['goto', 10, 9], ['goto', 15, 9]],
+  3: [['goto', 3, 2], ['wait', 30], ['reset'], ['goto', 10, 2], ['wait', 30], ['reset'], ['latch', 17, 2], ['goto', 5, 4], ['goto', 5, 7], ['goto', 10, 9], ['goto', 15, 9]],
   4: [['goto', 5, 5], ['wait', 60], ['reset'], ['wait', 120], ['goto', 15, 5], ['goto', 15, 9]],
   5: [
     ['waitFor', (s) => s.loopTime % 4 < 0.5, 'T off'],
@@ -236,18 +239,18 @@ const SOLUTIONS = {
   ],
   10: [['push', 0, 7, 2], ['push', 0, 7, 4], ['push', 0, 9, 4], ['goto', 5, 5], ['goto', 5, 7], ['goto', 10, 9], ['goto', 15, 9]],
   11: [
-    ['waitFor', (s) => s.drones[0].x > 16 && s.drones[0].dir === 1, 'drone far right'],
-    ['goto', 4, 1], ['wait', 30], ['reset'],
-    ['waitFor', (s) => s.drones[0].x > 16 && s.drones[0].dir === 1, 'drone far right'],
     ['goto', 10, 1], ['wait', 30], ['reset'],
-    ['latch', 15, 5],
+    ['goto', 4, 1], ['wait', 30], ['reset'],
+    ['waitFor', (s) => s.drones[0].x < 6 && s.drones[0].dir === -1, 'drone far left'],
+    ['goto', 15, 5], ['wait', 30], ['reset'],
+    ['latch', 16, 1],
     ['goto', 5, 7], ['goto', 5, 9], ['goto', 10, 9], ['goto', 15, 9],
   ],
   12: [
-    ['waitFor', (s) => s.drones[0].x > 14 && s.drones[0].dir === 1, 'drone far right'],
+    ['waitFor', (s) => s.drones[1].x > 14 && s.drones[1].dir === 1, 'drone far right'],
     ['goto', 4, 1], ['wait', 30], ['reset'],
     ['goto', 11, 1], ['wait', 30], ['reset'],
-    ['waitFor', (s) => s.drones[0].distracted > 0 || s.drones[0].x > 14, 'drone busy or far right'],
+    ['waitFor', (s) => s.drones[1].distracted > 0 || s.drones[1].x > 14, 'drone busy or far right'],
     ['goto', 5, 5], ['wait', 30], ['reset'],
     ['latch', 15, 5],
     ['goto', 5, 7], ['goto', 5, 9],
@@ -287,7 +290,7 @@ function runSolution(world, def, steps) {
 
 // ------------------------------------------------------------- tests ---
 console.log('== map validation ==');
-const VALID = new Set('#.PAX123Ws-|tToOCGHJKD'.split(''));
+const VALID = new Set('#.PAX123Ws-|tToOCGHJKDv'.split(''));
 for (const level of LEVELS) {
   const rows = level.map;
   let bad = '';
@@ -342,27 +345,45 @@ console.log('== unit: lasers, drones, crates, echoes, medals ==');
   check('L4 laser alarms an unprotected crossing', alarmed);
 }
 {
-  // A drone spots a player standing in front of it.
+  // Gradual detection (brief C): the alert meter fills in the cone, drains
+  // outside it, and only a full meter raises the alarm.
   const world = createWorld(createRandom(1));
-  world.loadLevel(LEVELS[5], 'story');
+  world.loadLevel(LEVELS[5], 'story'); // L6 Patrol
   const st = world.state;
   const drone = st.drones[0];
+  // (a) Standing in front of the drone: the meter rises, but no instant alarm.
   st.player.x = drone.x + 2;
   st.player.y = drone.y;
+  let earlyAlarm = false;
+  for (let i = 0; i < 30; i += 1) {
+    const events = world.step(STEP, { mx: 0, my: 0, reset: false });
+    if (events & EVENT_ALARM) earlyAlarm = true;
+  }
+  const filled = drone.alert;
+  check('Drone alert meter rises in the cone without instant alarm', filled > 0.3 && !earlyAlarm, `alert=${filled.toFixed(2)}`);
+  // (b) Step behind the drone: the meter drains.
+  st.player.x = drone.x - 2;
+  st.player.y = drone.y;
+  for (let i = 0; i < 60; i += 1) world.step(STEP, { mx: 0, my: 0, reset: false });
+  check('Alert meter drains once the player leaves the cone', drone.alert < filled * 0.5, `alert=${drone.alert.toFixed(2)} was ${filled.toFixed(2)}`);
+  // (c) A nearly-full meter alarms on the next exposure.
+  st.player.x = drone.x + 2;
+  st.player.y = drone.y;
+  drone.alert = 0.95;
   let alarmed = false;
   for (let i = 0; i < 30 && !alarmed; i += 1) {
     const events = world.step(STEP, { mx: 0, my: 0, reset: false });
     if (events & EVENT_ALARM) alarmed = true;
   }
-  check('L6 drone alarms a player in its cone', alarmed);
-  // ...and ignores a player standing behind it.
+  check('A full alert meter raises the alarm', alarmed);
+  // ...and a player standing behind the drone is still ignored.
   const world2 = createWorld(createRandom(1));
   world2.loadLevel(LEVELS[5], 'story');
   const d2 = world2.state.drones[0];
   world2.state.player.x = d2.x - 2;
   world2.state.player.y = d2.y;
   let alarmed2 = false;
-  for (let i = 0; i < 30 && !alarmed2; i += 1) {
+  for (let i = 0; i < 90 && !alarmed2; i += 1) {
     const events = world2.step(STEP, { mx: 0, my: 0, reset: false });
     if (events & EVENT_ALARM) alarmed2 = true;
   }
@@ -434,6 +455,58 @@ console.log('== unit: lasers, drones, crates, echoes, medals ==');
     if (world.state.failed) { timedOut = true; break; }
   }
   check('Time limit fails the level', timedOut && world.state.failed);
+}
+
+{
+  // Player velocity: smooth acceleration while steering, friction to a stop.
+  const world = createWorld(createRandom(1));
+  world.loadLevel(LEVELS[0], 'story');
+  const p = world.state.player;
+  const x0 = p.x;
+  for (let i = 0; i < 30; i += 1) world.step(STEP, { mx: 1, my: 0, reset: false });
+  const moving = p.x > x0 + 1 && p.vx > 0;
+  check('Player accelerates while steering', moving, `vx=${p.vx.toFixed(2)} dx=${(p.x - x0).toFixed(2)}`);
+  for (let i = 0; i < 60; i += 1) world.step(STEP, { mx: 0, my: 0, reset: false });
+  check('Player coasts to a stop with friction', Math.abs(p.vx) < 0.01 && Math.abs(p.vy) < 0.01, `vx=${p.vx.toFixed(3)}`);
+}
+{
+  // A plate press fires EVENT_PLATE and records which plate it was.
+  const world = createWorld(createRandom(1));
+  world.loadLevel(LEVELS[2], 'story'); // L3, plate 1 at (3,2)
+  const st = world.state;
+  // Step down onto plate 1 from the tile above it, watching for the event.
+  st.player.x = 3.5;
+  st.player.y = 1.5;
+  let plateEvent = false;
+  let lastPlate = null;
+  for (let i = 0; i < 120 && !plateEvent; i += 1) {
+    const events = world.step(STEP, { mx: 0, my: 1, reset: false });
+    if (events & EVENT_PLATE) { plateEvent = true; lastPlate = world.state.lastPlate; }
+  }
+  check('Plate press fires EVENT_PLATE with its tile', plateEvent && lastPlate && lastPlate.x === 3 && lastPlate.y === 2, `lastPlate=${lastPlate ? `${lastPlate.x},${lastPlate.y}` : 'none'}`);
+}
+{
+  // Score breakdown parts sum to the total.
+  const world = createWorld(createRandom(1));
+  const b = world.scoreBreakdown(LEVELS[0], 10, 0, 0, 'Perfect Echo');
+  check('Score breakdown sums to the total', b.total === 1000 + b.timeBonus + b.medalBonus - b.resetPenalty - b.alarmPenalty, `total=${b.total}`);
+  check('scoreFor matches the breakdown total', world.scoreFor(LEVELS[0], 10, 0, 0, 'Perfect Echo') === b.total);
+}
+{
+  // Every level names its target artifact with a known model kind (brief A).
+  const allNamed = LEVELS.every((l) => l.artifact && typeof l.artifact.name === 'string' && l.artifact.name.length > 3 && ARTIFACT_KINDS.includes(l.artifact.kind));
+  const distinct = new Set(LEVELS.map((l) => l.artifact.kind)).size;
+  check('All 12 levels name a distinct artifact model', allNamed && distinct === 12, `distinct kinds=${distinct}`);
+}
+{
+  // Endless modifiers scale with the room number (brief E).
+  const r1 = generateEndlessRoom(createRandom(11), 1);
+  const r5 = generateEndlessRoom(createRandom(12), 5);
+  const r7 = generateEndlessRoom(createRandom(13), 7);
+  check('Endless drones get faster in deeper rooms', r5.droneSpeed > r1.droneSpeed, `${r1.droneSpeed} -> ${r5.droneSpeed}`);
+  check('Endless lasers blink faster in deeper rooms', r5.laserPeriod < r1.laserPeriod, `${r1.laserPeriod} -> ${r5.laserPeriod}`);
+  check('Endless loop time limit shrinks in deeper rooms', r5.timeLimit < r1.timeLimit, `${r1.timeLimit} -> ${r5.timeLimit}`);
+  check('Endless room theme changes every 3 rooms', r1.theme === 0 && r5.theme === 1 && r7.theme === 2, `themes ${r1.theme}/${r5.theme}/${r7.theme}`);
 }
 
 console.log('== endless rooms ==');

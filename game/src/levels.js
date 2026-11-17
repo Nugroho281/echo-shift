@@ -12,57 +12,65 @@
 //   t  timed laser, horizontal (on 2 s, off 2 s)   T  timed laser, vertical, opposite phase
 //   o  security drone, patrols horizontally        O  security drone, patrols vertically
 //   C  movable crate
+//   v  glass display case (solid decor: a vitrine with an artifact silhouette inside)
 //
 // Doors LATCH: once their plates are all pressed at the same moment, a door stays open.
 // That is what makes an Echo useful — it can hold a plate forever while you walk away.
+//
+// Every level names its target artifact (def.artifact { name, kind }); the renderer
+// draws a mini model of that artifact, shows its name in the intro and the HUD, and
+// the museum gallery screen collects them all.
 
 export const LEVELS = [
   {
     id: 1, name: 'First Steps', par: 15, perfectResets: 0, maxEchoes: 1, timeLimit: 120,
+    artifact: { name: 'The Sun Idol', kind: 'idol' },
     intro: 'Move with WASD or arrows. Grab the artifact, then reach the green exit.',
     map: [
       '####################',
       '#P......A..........#',
       '#..................#',
+      '#..vv..........vv..#',
+      '#..................#',
+      '#..vv..........vv..#',
       '#..................#',
       '#..................#',
-      '#..................#',
-      '#..................#',
-      '#..................#',
-      '#..................#',
+      '#..vv..........vv..#',
       '#.........X........#',
       '####################',
     ],
   },
   {
     id: 2, name: 'Heavy Lifting', par: 30, perfectResets: 0, maxEchoes: 1, timeLimit: 120,
+    artifact: { name: 'The Gilded Vase', kind: 'vase' },
     intro: 'Only a crate is heavy enough for the gold plate. Push it onto the plate to open the door.',
     map: [
       '####################',
       '#P.................#',
-      '#......C...........#',
-      '#......W...........#',
+      '#......C.....vv....#',
+      '#......W.....vv....#',
       '#####D##############',
       '#..................#',
-      '#..................#',
-      '#..................#',
+      '#..vv..............#',
+      '#..vv..........vv..#',
       '#..................#',
       '#.........A....X...#',
       '####################',
     ],
   },
   {
-    id: 3, name: 'Meet Your Echo', par: 35, perfectResets: 1, maxEchoes: 2, timeLimit: 120,
-    intro: 'The door needs TWO plates at once. Stand on one, press R to reset the timeline — your Echo keeps holding it while you run to the other.',
+    id: 3, name: 'Meet Your Echo', par: 45, perfectResets: 2, maxEchoes: 2, timeLimit: 120,
+    artifact: { name: 'The Jade Mask', kind: 'mask' },
+    intro: 'Three plates, one door. Stand on plate 1, press R — your Echo holds it. Do it twice, then hold plate 3 yourself.',
     map: [
       '####################',
       '#P.................#',
-      '#..1............2..#',
+      '#..1......2......3.#',
       '#..................#',
+      '#..vv..........vv..#',
+      '#####K##############',
       '#..................#',
-      '#####J##############',
-      '#..................#',
-      '#..................#',
+      '#..vv..........vv..#',
       '#..................#',
       '#.........A....X...#',
       '####################',
@@ -70,50 +78,53 @@ export const LEVELS = [
   },
   {
     id: 4, name: 'Laser Switch', par: 30, perfectResets: 1, maxEchoes: 2, timeLimit: 120,
+    artifact: { name: 'The Sapphire Orb', kind: 'orb' },
     intro: 'Lasers burn. Stand on the switch, reset the timeline, and let your Echo hold the switch while you cross.',
     map: [
       '####################',
       '#P........|........#',
+      '#.........|...vv...#',
       '#.........|........#',
-      '#.........|........#',
-      '#.........|........#',
+      '#..vv.....|.....vv.#',
       '#....s....|....A...#',
       '#.........|........#',
-      '#.........|........#',
-      '#.........|........#',
+      '#.........|...vv...#',
+      '#..vv.....|........#',
       '#.........|....X...#',
       '####################',
     ],
   },
   {
     id: 5, name: 'Blink', par: 30, perfectResets: 0, maxEchoes: 1, timeLimit: 120,
+    artifact: { name: 'The Chrono Gem', kind: 'gem' },
     intro: 'Timed lasers blink on and off. Cross each row only while its beams are dark.',
     map: [
       '####################',
       '#....A.........X...#',
       '#..................#',
       '#tttttttttttttttttt#',
-      '#..................#',
-      '#..................#',
+      '#............vv....#',
+      '#............vv....#',
       '#TTTTTTTTTTTTTTTTTT#',
-      '#..................#',
-      '#..................#',
+      '#..vv..............#',
+      '#..vv..........vv..#',
       '#P.................#',
       '####################',
     ],
   },
   {
     id: 6, name: 'Patrol', par: 30, perfectResets: 0, maxEchoes: 1, timeLimit: 120,
+    artifact: { name: 'The Silver Crown', kind: 'crown' },
     intro: 'A drone sweeps the gallery. Its cone is its eyes — cross behind it, never in front of it.',
     map: [
       '####################',
       '#P.................#',
-      '#..................#',
-      '#..................#',
-      '#..................#',
+      '#..vv..........vv..#',
+      '#..vv..............#',
+      '#..............vv..#',
       '#....o.............#',
       '#..................#',
-      '#..................#',
+      '#..vv..............#',
       '#.........A....X...#',
       '#..................#',
       '####################',
@@ -121,33 +132,35 @@ export const LEVELS = [
   },
   {
     id: 7, name: 'Distraction', par: 45, perfectResets: 1, maxEchoes: 2, timeLimit: 150,
+    artifact: { name: 'The Velvet Scroll', kind: 'scroll' },
     intro: 'The drone guards the artifact. Walk into its view, let it spot you, then reset — your Echo will keep it busy on the left while you slip past on the right.',
     map: [
       '####################',
       '#P.................#',
-      '#..................#',
-      '#..................#',
-      '#..................#',
+      '#..vv..........vv..#',
+      '#..vv..............#',
+      '#..............vv..#',
       '#....o.............#',
       '#..................#',
-      '#............A.....#',
-      '#..................#',
+      '#..vv........A.....#',
+      '#..vv..............#',
       '#...............X..#',
       '####################',
     ],
   },
   {
     id: 8, name: 'Twin Plates', par: 50, perfectResets: 1, maxEchoes: 2, timeLimit: 150,
+    artifact: { name: 'The Twin Daggers', kind: 'dagger' },
     intro: 'Two plates, one door, and a drone between them. Echo the first plate, then time your run to the second.',
     map: [
       '####################',
       '#P..1..............#',
       '#..................#',
-      '#..................#',
-      '#..................#',
+      '#..vv......vv......#',
+      '#..vv......vv......#',
       '#....o........2....#',
       '#..................#',
-      '#..................#',
+      '#..vv..........vv..#',
       '#####J##############',
       '#.........A....X...#',
       '####################',
@@ -155,67 +168,71 @@ export const LEVELS = [
   },
   {
     id: 9, name: 'Triple Echo', par: 60, perfectResets: 2, maxEchoes: 3, timeLimit: 150,
+    artifact: { name: 'The Golden Coin', kind: 'coin' },
     intro: 'Three plates, one door. You will need two Echoes and yourself, all holding at once.',
     map: [
       '####################',
       '#P..1.....2......3.#',
       '#..................#',
-      '#..................#',
-      '#..................#',
-      '#..................#',
+      '#..vv..........vv..#',
+      '#..vv......vv......#',
       '#..................#',
       '#####K##############',
       '#..................#',
+      '#..vv..........vv..#',
       '#.........A....X...#',
       '####################',
     ],
   },
   {
     id: 10, name: 'Crate Work', par: 60, perfectResets: 0, maxEchoes: 1, timeLimit: 150,
+    artifact: { name: 'The Obsidian Skull', kind: 'skull' },
     intro: 'Push the crate right, then down around the wall, then right again onto the heavy plate.',
     map: [
       '####################',
       '#P.................#',
-      '#....C..#####......#',
+      '#....C..#####.vv...#',
       '#..................#',
       '#........W.........#',
-      '#..................#',
+      '#............vv....#',
       '#####D##############',
-      '#..................#',
-      '#..................#',
+      '#..vv..............#',
+      '#..vv..........vv..#',
       '#.........A....X...#',
       '####################',
     ],
   },
   {
-    id: 11, name: 'Grand Gallery', par: 80, perfectResets: 2, maxEchoes: 3, timeLimit: 180,
-    intro: 'Everything at once: a plate, a laser switch, a drone on the top row, and a double-plate door.',
+    id: 11, name: 'Grand Gallery', par: 100, perfectResets: 3, maxEchoes: 3, timeLimit: 180,
+    artifact: { name: 'The Moon Mirror', kind: 'mirror' },
+    intro: 'The grand gallery: a switch, three plates, a drone and a laser wall. Three Echoes, one perfect loop.',
     map: [
       '####################',
-      '#P..1..o..s........#',
+      '#P..1.....s.....3..#',
       '#..................#',
       '#..................#',
-      '#.........|........#',
+      '#......o..|........#',
       '#.........|....2...#',
       '#.........|........#',
-      '#.........|........#',
-      '#####J##############',
+      '#####K##############',
+      '#..vv..........vv..#',
       '#.........A....X...#',
       '####################',
     ],
   },
   {
     id: 12, name: 'The Final Heist', par: 100, perfectResets: 3, maxEchoes: 3, timeLimit: 240,
-    intro: 'The vault. Three plates, a laser wall, a patrolling drone, and a blinking laser floor. One last perfect loop.',
+    artifact: { name: 'The Phoenix Egg', kind: 'egg' },
+    intro: 'The vault. Three plates, a laser wall, two patrolling drones, and a blinking laser floor. One last perfect loop.',
     map: [
       '####################',
       '#P..1......2.......#',
-      '#..................#',
+      '#..............v.o.#',
       '#....o.............#',
       '#.........|........#',
       '#....s....|....3...#',
-      '#.........|........#',
-      '#.........|........#',
+      '#.........|..vv....#',
+      '#.........|..vv....#',
       '#####K##############',
       '#.....tttt..A...X..#',
       '####################',
@@ -236,6 +253,10 @@ export const DOOR_NEEDS = {
  * Build one Endless Heist room. Rooms are solvable by construction: an open floor, a
  * door whose plate sits in the open (press it and the door latches), artifacts in the
  * open, and hazards that only ever cost an alarm, never a dead end.
+ *
+ * Difficulty modifiers scale with the room number (brief E): drones patrol faster,
+ * timed lasers blink faster, the loop time limit shrinks, and the room's colour theme
+ * changes every 3 rooms.
  */
 export function generateEndlessRoom(random, room) {
   const rows = [];
@@ -274,9 +295,24 @@ export function generateEndlessRoom(random, room) {
     for (let c = 12; c <= 17; c += 1) if (rows[8][c] === '.') set(c, 8, 't');
   }
   if (room >= 5) set(14 + Math.floor(random() * 3), 3, 'O');
+  if (room >= 6) set(3 + Math.floor(random() * 3), 8 + Math.floor(random() * 2), 'o');
+  // Display cases fill dead floor space (never on the door column, never on a
+  // mechanic tile — only plain floor, so the room stays solvable by construction).
+  // Never block the two tiles flanking the door: they are the only way through.
+  const vitrineCount = 3 + Math.min(3, Math.floor(room / 2));
+  for (let i = 0; i < vitrineCount; i += 1) {
+    const c = 2 + Math.floor(random() * 16);
+    const r = 1 + Math.floor(random() * 9);
+    if (r === 5 && Math.abs(c - doorCol) === 1) continue;
+    if (rows[r][c] === '.' && c !== doorCol) set(c, r, 'v');
+  }
   return {
     id: 100 + room, name: `Heist Room ${room}`, par: 40, perfectResets: 1,
-    maxEchoes: 3, timeLimit: 90,
+    maxEchoes: 3, timeLimit: Math.max(45, 90 - 5 * (room - 1)),
+    droneSpeed: Math.min(3.2, 1.6 + 0.15 * (room - 1)),
+    laserPeriod: Math.max(2, 4 - 0.2 * (room - 1)),
+    theme: Math.floor((room - 1) / 3) % 4,
+    artifact: { name: 'Heist Loot', kind: 'coin' },
     intro: `Room ${room}: grab every artifact, latch the door, reach the exit.`,
     map: rows,
   };
