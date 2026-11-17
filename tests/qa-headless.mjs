@@ -98,6 +98,35 @@ class CDP {
     await sleep(120);
   }
 
+  /** A one-finger tap via the touch pipeline (generates touch + pointer events). */
+  async touchTap(x, y) {
+    this.lastTouch = { x, y };
+    await this.call('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y, id: 1 }] });
+    await sleep(60);
+    await this.call('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [{ x, y, id: 1 }] });
+    await sleep(150);
+  }
+
+  /** Touch-hold-drag: finger down at (x0, y0), glides to (x1, y1), stays down. */
+  async touchDragStart(x0, y0, x1, y1, steps = 8, stepMs = 60) {
+    this.lastTouch = { x: x1, y: y1 };
+    await this.call('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: x0, y: y0, id: 1 }] });
+    await sleep(100);
+    for (let i = 1; i <= steps; i += 1) {
+      const x = x0 + ((x1 - x0) * i) / steps;
+      const y = y0 + ((y1 - y0) * i) / steps;
+      await this.call('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y, id: 1 }] });
+      await sleep(stepMs);
+    }
+  }
+
+  /** Lift the finger (touchEnd needs the point being released). */
+  async touchEnd() {
+    const p = this.lastTouch || { x: 0, y: 0 };
+    await this.call('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [{ x: p.x, y: p.y, id: 1 }] });
+    await sleep(150);
+  }
+
   async shot(path) {
     const r = await this.call('Page.captureScreenshot', { format: 'jpeg', quality: 85 });
     fs.writeFileSync(path, Buffer.from(r.data, 'base64'));
@@ -308,6 +337,65 @@ async function main() {
     // AudioContext comes up without throwing (headless: no real sound needed).
     const audioOk = await cdp.eval(`(() => { try { const a = window.__echoShift.audio; a.ensure(); return true; } catch (e) { return String(e); } })()`);
     check('WebAudio ensure() does not throw', audioOk === true, String(audioOk));
+
+    // ---- 3. touch controls (emulated touch device) ----
+    console.log('== touch controls ==');
+    await cdp.call('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+    await navigate(`${BASE}/index.html`);
+    await sleep(800);
+    drainErrors();
+    check('touch device is detected (ui.isTouch)', (await cdp.eval('window.__echoShift.ui.isTouch')) === true);
+    check('title screen shows on touch device', (await screen()) === 'title', await screen());
+    // Menus work by touch tap, exactly like mouse clicks.
+    await cdp.touchTap(640, 447); // STORY MODE
+    check('touch tap opens level select', (await screen()) === 'select', await screen());
+    await cdp.touchTap(220, 199); // LEVEL 1
+    check('touch tap starts Level 1', (await screen()) === 'play' && (await state()).level === 1, await screen());
+    // The play screen on touch shows the on-screen RESET + PAUSE buttons.
+    const touchLabels = await cdp.eval('window.__echoShift.ui.buttons.map((b) => b.label)');
+    check('touch play buttons include RESET', touchLabels.includes('↺ RESET'), touchLabels.join(', '));
+    check('touch play buttons include PAUSE', touchLabels.includes('❚❚'), touchLabels.join(', '));
+    const resetBtn = await cdp.eval(`(() => { const b = window.__echoShift.ui.buttons.find((x) => x.label === '↺ RESET'); return b ? { x: b.x + b.w / 2, y: b.y + b.h / 2, h: b.h } : null; })()`);
+    check('touch RESET button is thumb-sized', !!resetBtn && resetBtn.h >= 44, resetBtn ? `h=${resetBtn.h}` : 'missing');
+    // Virtual joystick: touch-hold-drag right moves the thief right.
+    const dragBefore = await state();
+    await cdp.touchDragStart(400, 400, 600, 400);
+    await sleep(700); // still holding the drag
+    const dragMid = await state();
+    check('touch drag steers the player', dragMid.x > dragBefore.x + 1, `x ${dragBefore.x.toFixed(1)} -> ${dragMid.x.toFixed(1)}`);
+    check('joystick is active while dragging', (await cdp.eval('window.__echoShift.ui.joystick !== null')) === true);
+    await cdp.touchEnd();
+    await sleep(600); // friction coasts the thief to a stop
+    const dragAfter = await state();
+    check('releasing the drag stops the player', dragAfter.x < dragMid.x + 1, `x ${dragMid.x.toFixed(1)} -> ${dragAfter.x.toFixed(1)}`);
+    check('joystick clears on release', (await cdp.eval('window.__echoShift.ui.joystick')) === null);
+    // A tap on the PAUSE touch button pauses WITHOUT moving the player.
+    const pauseBefore = await state();
+    const pauseBtn = await cdp.eval(`(() => { const b = window.__echoShift.ui.buttons.find((x) => x.label === '❚❚'); return b ? { x: b.x + b.w / 2, y: b.y + b.h / 2 } : null; })()`);
+    await cdp.touchTap(pauseBtn.x, pauseBtn.y);
+    const pausedState = await state();
+    check('touch PAUSE button pauses', (await screen()) === 'paused', await screen());
+    check('tapping PAUSE does not steer the player', Math.abs(pausedState.x - pauseBefore.x) < 0.05 && Math.abs(pausedState.y - pauseBefore.y) < 0.05, `(${pauseBefore.x.toFixed(2)},${pauseBefore.y.toFixed(2)}) -> (${pausedState.x.toFixed(2)},${pausedState.y.toFixed(2)})`);
+    await cdp.touchTap(640, 509); // Resume button
+    check('Resume button works after touch pause', (await screen()) === 'play', await screen());
+    // The touch RESET button spawns an Echo, same as pressing R.
+    const resetBefore = await state();
+    await cdp.touchTap(resetBtn.x, resetBtn.y);
+    await sleep(400);
+    const resetAfter = await state();
+    check('touch RESET button spawns an Echo', resetAfter.resets === resetBefore.resets + 1 && resetAfter.echoes === resetBefore.echoes + 1, `resets=${resetAfter.resets} echoes=${resetAfter.echoes}`);
+    // Help on a touch device shows the touch hints (flag-gated in the renderer).
+    await cdp.key('keyDown', 'KeyP', 'p'); await cdp.key('keyUp', 'KeyP', 'p');
+    await sleep(300);
+    await cdp.touchTap(640, 641); // Quit to menu
+    check('Quit to menu returns to title (touch)', (await screen()) === 'title', await screen());
+    await cdp.touchTap(725, 638); // How to play
+    check('Help opens on touch device', (await screen()) === 'help', await screen());
+    check('Help still offers touch hints (isTouch)', (await cdp.eval('window.__echoShift.ui.isTouch')) === true);
+    await cdp.touchTap(640, 587); // Back
+    check('Help Back returns to title (touch)', (await screen()) === 'title', await screen());
+    await cdp.call('Emulation.setTouchEmulationEnabled', { enabled: false });
+    drainErrors();
 
     // Everything the page fetched must be local (offline requirement).
     drainErrors();

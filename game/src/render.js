@@ -854,6 +854,27 @@ export function createRenderer(canvas) {
     context.globalAlpha = 1;
   }
 
+  /** The virtual joystick, drawn only while a touch drag is active: a faint
+   *  base ring where the finger landed and a knob pulled toward the drag. */
+  function drawJoystick(joy) {
+    const dx = joy.x - joy.ox;
+    const dy = joy.y - joy.oy;
+    const len = Math.hypot(dx, dy);
+    const cl = Math.min(len, 48);
+    const kx = len > 0 ? joy.ox + (dx / len) * cl : joy.ox;
+    const ky = len > 0 ? joy.oy + (dy / len) * cl : joy.oy;
+    context.globalAlpha = 0.28;
+    context.fillStyle = PALETTE.player;
+    context.beginPath();
+    context.arc(joy.ox, joy.oy, 48, 0, Math.PI * 2);
+    context.fill();
+    context.globalAlpha = 0.55;
+    context.beginPath();
+    context.arc(kx, ky, 20, 0, Math.PI * 2);
+    context.fill();
+    context.globalAlpha = 1;
+  }
+
   function drawHud(world, ui) {
     const st = world.state;
     const def = st.level;
@@ -943,13 +964,20 @@ export function createRenderer(canvas) {
 
   function drawHelp(ui) {
     drawAmbient();
-    drawPanel('How to play', [
+    const lines = [
       'You are a thief in a neon museum. Every move is recorded.',
       'Press R: the timeline resets and your Echo replays your last loop.',
       'Echoes hold plates and switches, and distract drones. Doors latch open.',
       'Lasers burn, drones raise the alarm. Grab every artifact, reach EXIT.',
       'Medals: Perfect Echo needs par time, no alarms, and few resets.',
-    ], PALETTE.purple);
+    ];
+    // Touch hints only appear on touch devices, so the desktop Help page is
+    // pixel-identical to before.
+    if (ui.isTouch) {
+      lines.push('Touch: drag anywhere to steer the thief.');
+      lines.push('↺ RESET spawns your Echo · ❚❚ pauses the game.');
+    }
+    drawPanel('How to play', lines, PALETTE.purple);
     for (const b of ui.buttons) drawButton(b);
   }
 
@@ -1132,6 +1160,7 @@ export function createRenderer(canvas) {
         drawResults(ui, t);
       } else if (screen === SCREEN_PLAY) {
         for (const b of ui.buttons) drawButton(b);
+        if (ui.isTouch && ui.joystick) drawJoystick(ui.joystick);
         if (world.state.level && world.state.time < 4 && ui.mode === 'story') {
           const art = world.state.level.artifact;
           context.fillStyle = 'rgba(7,7,15,0.78)';

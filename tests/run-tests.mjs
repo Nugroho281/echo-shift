@@ -9,6 +9,7 @@ import {
 } from '../game/src/world.js';
 import { ARTIFACT_KINDS } from '../game/src/render.js';
 import { STEP } from '../game/src/config.js';
+import { JOYSTICK_DEADZONE, JOYSTICK_RADIUS, joystickVector } from '../game/src/input.js';
 
 let passed = 0;
 let failed = 0;
@@ -507,6 +508,23 @@ console.log('== unit: lasers, drones, crates, echoes, medals ==');
   check('Endless lasers blink faster in deeper rooms', r5.laserPeriod < r1.laserPeriod, `${r1.laserPeriod} -> ${r5.laserPeriod}`);
   check('Endless loop time limit shrinks in deeper rooms', r5.timeLimit < r1.timeLimit, `${r1.timeLimit} -> ${r5.timeLimit}`);
   check('Endless room theme changes every 3 rooms', r1.theme === 0 && r5.theme === 1 && r7.theme === 2, `themes ${r1.theme}/${r5.theme}/${r7.theme}`);
+}
+
+console.log('== unit: virtual joystick ==');
+{
+  // Inside the deadzone: no steering (a tap is not a drag).
+  check('Joystick: no vector inside the deadzone', joystickVector(100, 100, 100 + JOYSTICK_DEADZONE - 1, 100) === null);
+  check('Joystick: no vector for a zero drag', joystickVector(100, 100, 100, 100) === null);
+  // Past the deadzone: direction of the drag, magnitude ramping to 1.
+  const right = joystickVector(100, 100, 100 + JOYSTICK_DEADZONE + 10, 100);
+  check('Joystick: drag right steers right', !!right && right.mx > 0 && Math.abs(right.my) < 0.001, right ? `mx=${right.mx.toFixed(2)} my=${right.my.toFixed(2)}` : 'null');
+  const up = joystickVector(100, 100, 100, 100 - JOYSTICK_DEADZONE - 10);
+  check('Joystick: drag up steers up', !!up && up.my < 0 && Math.abs(up.mx) < 0.001, up ? `mx=${up.mx.toFixed(2)} my=${up.my.toFixed(2)}` : 'null');
+  const diag = joystickVector(100, 100, 100 + 40, 100 + 40);
+  const diagLen = diag ? Math.hypot(diag.mx, diag.my) : 0;
+  check('Joystick: diagonal drag is a unit-ish diagonal', !!diag && Math.abs(diag.mx - diag.my) < 0.001 && diagLen > 0 && diagLen <= 1, diag ? `mx=${diag.mx.toFixed(2)} my=${diag.my.toFixed(2)}` : 'null');
+  const far = joystickVector(100, 100, 100 + JOYSTICK_RADIUS + 200, 100);
+  check('Joystick: magnitude clamps at 1 for a long drag', !!far && Math.abs(Math.hypot(far.mx, far.my) - 1) < 0.001, far ? `|v|=${Math.hypot(far.mx, far.my).toFixed(2)}` : 'null');
 }
 
 console.log('== endless rooms ==');

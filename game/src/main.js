@@ -14,7 +14,7 @@ import {
   EVENT_ALARM, EVENT_COMPLETE, EVENT_DOOR, EVENT_ECHO, EVENT_LASER_OFF,
   EVENT_PICKUP, EVENT_PLATE, EVENT_TIMEOUT, createWorld,
 } from './world.js';
-import { ACTION_CONFIRM, ACTION_MUTE, ACTION_PAUSE, ACTION_RESET, createInput } from './input.js';
+import { ACTION_CONFIRM, ACTION_MUTE, ACTION_PAUSE, ACTION_RESET, createInput, isTouchDevice } from './input.js';
 import { createAudio } from './audio.js';
 import {
   SCREEN_GALLERY, SCREEN_HELP, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_RESULTS, SCREEN_SELECT,
@@ -89,6 +89,10 @@ const ui = {
   pendingScore: null,
   suppressConfirm: false,
   lastTensionSent: 0,
+  // Touch devices get on-screen RESET / PAUSE buttons and touch hints in Help;
+  // the desktop UI is built from this flag and stays exactly as it was.
+  isTouch: isTouchDevice(),
+  joystick: null,
 };
 window.__echoShift.ui = ui;
 window.__echoShift.save = save;
@@ -152,6 +156,16 @@ function galleryButtons() {
 }
 
 function playButtons() {
+  // Touch devices get bigger, thumb-sized buttons plus an on-screen RESET
+  // (same as pressing R: rewind the timeline and spawn the Echo). Desktop
+  // keeps the two small corner buttons, byte for byte as before.
+  if (ui.isTouch) {
+    return [
+      button(996, 4, 110, 44, '↺ RESET', '', () => { ui.resetQueued = true; audio.reset(); }),
+      button(1116, 4, 62, 44, '❚❚', '', () => pauseGame()),
+      button(1188, 4, 62, 44, save.muted ? '🔇' : '♪', '', () => toggleMute()),
+    ];
+  }
   return [
     button(1120, 4, 62, 32, '❚❚', '', () => pauseGame()),
     button(1188, 4, 62, 32, save.muted ? '🔇' : '♪', '', () => toggleMute()),
@@ -554,7 +568,12 @@ function runGame() {
     let actions = actions0;
     if (click) {
       const hitButton = handleClick(click);
-      if (hitButton) actions &= ~ACTION_CONFIRM;
+      if (hitButton) {
+        actions &= ~ACTION_CONFIRM;
+        // A touch that hit a button was a tap, not a joystick drag: drop the
+        // drag it started so it cannot also steer the player.
+        input.cancelJoystick();
+      }
     }
     // An Enter that just saved Endless initials must not also advance.
     if (ui.suppressConfirm) {
@@ -592,8 +611,9 @@ function runGame() {
       accumulator = 0;
     }
     if (ui.message && now > ui.messageUntil) ui.message = '';
-    // Hover state for buttons.
+    // Hover state for buttons, and the joystick state for the renderer.
     const mouse = input.mouse();
+    ui.joystick = input.joystick();
     for (const b of ui.buttons) {
       b.hot = mouse.x >= b.x && mouse.x <= b.x + b.w && mouse.y >= b.y && mouse.y <= b.y + b.h;
     }
